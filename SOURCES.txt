@@ -1,0 +1,1 @@
+City of Chicago building footprints (data.cityofchicago.org, dataset syp8-uezg) and OpenStreetMap (© OpenStreetMap contributors, ODbL), fetched by chicago/fetch_data.py.
