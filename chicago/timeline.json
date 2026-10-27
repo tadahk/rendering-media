@@ -1,0 +1,1063 @@
+{
+ "duration": 131,
+ "fortBorn": 1803.6,
+ "drift": {
+  "degPerSec": 0.2,
+  "bob": 0.03,
+  "pauses": [
+   [
+    41.45,
+    45.8
+   ]
+  ]
+ },
+ "stills": [
+  12,
+  34,
+  92
+ ],
+ "clearZones": [
+  [
+   -1130.9,
+   286.6,
+   140
+  ]
+ ],
+ "moods": {
+  "dusk": {
+   "skyTop": "#2b3b6b",
+   "horizon": "#e3a27e",
+   "glow": "#ff7a35",
+   "hemiSky": "#8a9ccc",
+   "hemiGround": "#2f2a2a",
+   "hemi": 1.35,
+   "sun": "#ff9a55",
+   "sunI": 2.0,
+   "sunAz": 255,
+   "sunEl": 10,
+   "fogNear": 4500,
+   "fogFar": 15000,
+   "lights": 1.0,
+   "exposure": 1.35,
+   "lamps": 0.6
+  },
+  "night": {
+   "skyTop": "#02040b",
+   "horizon": "#1b2a4f",
+   "glow": "#000000",
+   "hemiSky": "#4a63a8",
+   "hemiGround": "#0b0b10",
+   "hemi": 1.1,
+   "sun": "#9fb0ff",
+   "sunI": 1.6,
+   "sunAz": 150,
+   "sunEl": 38,
+   "fogNear": 4500,
+   "fogFar": 16000,
+   "lights": 0.0,
+   "exposure": 1.9,
+   "lamps": 1.0
+  },
+  "morning": {
+   "skyTop": "#5d8fc9",
+   "horizon": "#e2e8ea",
+   "glow": "#ffd6a6",
+   "hemiSky": "#bcd4ec",
+   "hemiGround": "#5a5040",
+   "hemi": 1.05,
+   "sun": "#ffe2b8",
+   "sunI": 2.4,
+   "sunAz": 115,
+   "sunEl": 20,
+   "fogNear": 7000,
+   "fogFar": 24000,
+   "lights": 0.0,
+   "exposure": 1.0,
+   "lamps": 0.0
+  },
+  "haze": {
+   "skyTop": "#7b98bd",
+   "horizon": "#ead8bf",
+   "glow": "#ffcf96",
+   "hemiSky": "#d2d6dc",
+   "hemiGround": "#5c5244",
+   "hemi": 1.15,
+   "sun": "#ffd9a8",
+   "sunI": 2.2,
+   "sunAz": 215,
+   "sunEl": 28,
+   "fogNear": 6000,
+   "fogFar": 22000,
+   "lights": 0.0,
+   "exposure": 1.05,
+   "lamps": 0.0
+  }
+ },
+ "camera": [
+  {
+   "t": 0,
+   "pos": [
+    1950,
+    2150,
+    1700
+   ],
+   "target": [
+    -2000,
+    0,
+    -100
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 9,
+   "pos": [
+    1700,
+    2000,
+    1500
+   ],
+   "target": [
+    -2000,
+    0,
+    -100
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 20,
+   "pos": [
+    2300,
+    2350,
+    2000
+   ],
+   "target": [
+    -1800,
+    0,
+    100
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 26,
+   "pos": [
+    900,
+    1500,
+    2300
+   ],
+   "target": [
+    -2200,
+    0,
+    1200
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 27.4,
+   "pos": [
+    850,
+    1450,
+    2350
+   ],
+   "target": [
+    -2250,
+    0,
+    1250
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 31.4,
+   "pos": [
+    -2081.3,
+    250,
+    1833.4
+   ],
+   "target": [
+    -2461.3,
+    0,
+    2133.4
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 37.4,
+   "pos": [
+    -2081.3,
+    250,
+    1833.4
+   ],
+   "target": [
+    -2461.3,
+    0,
+    2133.4
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 40.6,
+   "pos": [
+    700,
+    2300,
+    3000
+   ],
+   "target": [
+    -2400,
+    0,
+    900
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 41.4,
+   "pos": [
+    700,
+    2300,
+    3000
+   ],
+   "target": [
+    -2400,
+    0,
+    900
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 41.45,
+   "pos": [
+    700,
+    1500,
+    1400
+   ],
+   "target": [
+    -1600,
+    0,
+    100
+   ],
+   "ease": "linear",
+   "fov": 38
+  },
+  {
+   "t": 46.0,
+   "pos": [
+    500,
+    1300,
+    1250
+   ],
+   "target": [
+    -1500,
+    0,
+    100
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 50.0,
+   "pos": [
+    -1130.9,
+    52,
+    286.6
+   ],
+   "target": [
+    -1000.9000000000001,
+    4,
+    76.6
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 56.0,
+   "pos": [
+    -1130.9,
+    52,
+    286.6
+   ],
+   "target": [
+    -1000.9000000000001,
+    4,
+    76.6
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 60.0,
+   "pos": [
+    1100,
+    1900,
+    1700
+   ],
+   "target": [
+    -1900,
+    0,
+    0
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 66,
+   "pos": [
+    700,
+    1600,
+    1500
+   ],
+   "target": [
+    -2100,
+    0,
+    200
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 74,
+   "pos": [
+    900,
+    1700,
+    1600
+   ],
+   "target": [
+    -2200,
+    0,
+    250
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 79,
+   "pos": [
+    1400,
+    2100,
+    2100
+   ],
+   "target": [
+    -1700,
+    0,
+    400
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 88,
+   "pos": [
+    1500,
+    7500,
+    9500
+   ],
+   "target": [
+    -5500,
+    0,
+    2200
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 101,
+   "pos": [
+    1200,
+    7200,
+    9000
+   ],
+   "target": [
+    -5800,
+    0,
+    2000
+   ],
+   "ease": "linear",
+   "fov": 38
+  },
+  {
+   "t": 114,
+   "pos": [
+    1700,
+    2400,
+    2500
+   ],
+   "target": [
+    -1900,
+    0,
+    600
+   ],
+   "ease": "inout",
+   "fov": 38
+  },
+  {
+   "t": 131,
+   "pos": [
+    500,
+    1500,
+    2700
+   ],
+   "target": [
+    -1900,
+    0,
+    1500
+   ],
+   "ease": "inout",
+   "fov": 38
+  }
+ ],
+ "year": [
+  {
+   "t": 0,
+   "v": 2026
+  },
+  {
+   "t": 9,
+   "v": 2026
+  },
+  {
+   "t": 13,
+   "v": 1965,
+   "ease": "in"
+  },
+  {
+   "t": 23,
+   "v": 1885,
+   "ease": "linear"
+  },
+  {
+   "t": 26,
+   "v": 1873,
+   "ease": "linear"
+  },
+  {
+   "t": 27.4,
+   "v": 1871.6,
+   "ease": "out"
+  },
+  {
+   "t": 41.4,
+   "v": 1871.6
+  },
+  {
+   "t": 41.45,
+   "v": 1803.0,
+   "ease": "step"
+  },
+  {
+   "t": 50.0,
+   "v": 1803.4,
+   "ease": "linear"
+  },
+  {
+   "t": 56.0,
+   "v": 1803.8,
+   "ease": "linear"
+  },
+  {
+   "t": 59,
+   "v": 1804.5,
+   "ease": "linear"
+  },
+  {
+   "t": 61,
+   "v": 1830.0,
+   "ease": "inout"
+  },
+  {
+   "t": 65,
+   "v": 1830.95,
+   "ease": "linear"
+  },
+  {
+   "t": 70.5,
+   "v": 1833.6,
+   "ease": "inout"
+  },
+  {
+   "t": 76,
+   "v": 1837.5,
+   "ease": "linear"
+  },
+  {
+   "t": 88,
+   "v": 1848.2,
+   "ease": "inout"
+  },
+  {
+   "t": 101,
+   "v": 1849.0,
+   "ease": "linear"
+  },
+  {
+   "t": 116,
+   "v": 1869.8,
+   "ease": "inout"
+  },
+  {
+   "t": 131,
+   "v": 1871.5,
+   "ease": "out"
+  }
+ ],
+ "points": {
+  "canal": [
+   -87.73,
+   41.8105
+  ],
+  "rail": [
+   -87.74,
+   41.8883
+  ],
+  "river": [
+   -87.63,
+   41.8878
+  ],
+  "lake": [
+   -87.615,
+   41.88
+  ]
+ },
+ "features": [
+  {
+   "id": "canal",
+   "kind": "canal",
+   "width": 45,
+   "pts": [
+    [
+     -87.6658,
+     41.8436
+    ],
+    [
+     -87.676,
+     41.838
+    ],
+    [
+     -87.69,
+     41.83
+    ],
+    [
+     -87.71,
+     41.82
+    ],
+    [
+     -87.735,
+     41.808
+    ],
+    [
+     -87.765,
+     41.798
+    ],
+    [
+     -87.8,
+     41.788
+    ],
+    [
+     -87.835,
+     41.78
+    ],
+    [
+     -87.88,
+     41.765
+    ],
+    [
+     -87.93,
+     41.74
+    ]
+   ],
+   "reveal": [
+    {
+     "t": 0,
+     "v": 0
+    },
+    {
+     "t": 88.8,
+     "v": 0
+    },
+    {
+     "t": 94.5,
+     "v": 1,
+     "ease": "inout"
+    }
+   ]
+  },
+  {
+   "id": "rail",
+   "kind": "rail",
+   "width": 22,
+   "pts": [
+    [
+     -87.6395,
+     41.889
+    ],
+    [
+     -87.66,
+     41.889
+    ],
+    [
+     -87.69,
+     41.8889
+    ],
+    [
+     -87.72,
+     41.8885
+    ],
+    [
+     -87.76,
+     41.888
+    ],
+    [
+     -87.8,
+     41.8875
+    ],
+    [
+     -87.837,
+     41.887
+    ]
+   ],
+   "reveal": [
+    {
+     "t": 0,
+     "v": 0
+    },
+    {
+     "t": 94.8,
+     "v": 0
+    },
+    {
+     "t": 100.0,
+     "v": 1,
+     "ease": "in"
+    }
+   ]
+  }
+ ],
+ "mood": [
+  {
+   "t": 0,
+   "v": "dusk"
+  },
+  {
+   "t": 24,
+   "v": "dusk"
+  },
+  {
+   "t": 28.5,
+   "v": "night",
+   "ease": "inout"
+  },
+  {
+   "t": 41.4,
+   "v": "night"
+  },
+  {
+   "t": 41.45,
+   "v": "morning",
+   "ease": "step"
+  },
+  {
+   "t": 104,
+   "v": "morning"
+  },
+  {
+   "t": 122,
+   "v": "haze",
+   "ease": "inout"
+  },
+  {
+   "t": 131,
+   "v": "haze"
+  }
+ ],
+ "fire": [
+  {
+   "t": 0,
+   "v": 0
+  },
+  {
+   "t": 31.6,
+   "v": 0
+  },
+  {
+   "t": 32.4,
+   "v": 0.12,
+   "ease": "out"
+  },
+  {
+   "t": 37.4,
+   "v": 0.22,
+   "ease": "linear"
+  },
+  {
+   "t": 41.4,
+   "v": 0.25
+  },
+  {
+   "t": 41.45,
+   "v": 0,
+   "ease": "step"
+  }
+ ],
+ "paper": [
+  {
+   "t": 0,
+   "v": 0
+  },
+  {
+   "t": 37.6,
+   "v": 0
+  },
+  {
+   "t": 41.0,
+   "v": 1,
+   "ease": "inout"
+  },
+  {
+   "t": 41.9,
+   "v": 1
+  },
+  {
+   "t": 41.95,
+   "v": 0,
+   "ease": "step"
+  }
+ ],
+ "ink": [
+  {
+   "t": 0,
+   "v": 1
+  },
+  {
+   "t": 41.4,
+   "v": 1
+  },
+  {
+   "t": 41.45,
+   "v": 0,
+   "ease": "step"
+  },
+  {
+   "t": 42.0,
+   "v": 0
+  },
+  {
+   "t": 46.0,
+   "v": 1,
+   "ease": "inout"
+  }
+ ],
+ "blueprint": [
+  {
+   "t": 0,
+   "v": 0
+  },
+  {
+   "t": 61,
+   "v": 0
+  },
+  {
+   "t": 64.5,
+   "v": 1
+  },
+  {
+   "t": 68,
+   "v": 1
+  },
+  {
+   "t": 71.5,
+   "v": 0
+  }
+ ],
+ "ghost": [
+  {
+   "t": 0,
+   "v": 0
+  },
+  {
+   "t": 15,
+   "v": 0
+  },
+  {
+   "t": 17,
+   "v": 1
+  },
+  {
+   "t": 27,
+   "v": 1
+  },
+  {
+   "t": 30,
+   "v": 0
+  }
+ ],
+ "fade": [
+  {
+   "t": 0,
+   "v": 1
+  },
+  {
+   "t": 1.5,
+   "v": 0,
+   "ease": "out"
+  },
+  {
+   "t": 128,
+   "v": 0
+  },
+  {
+   "t": 131,
+   "v": 1,
+   "ease": "inout"
+  }
+ ],
+ "overlays": [
+  {
+   "kind": "year",
+   "t0": 9.5,
+   "t1": 27.6
+  },
+  {
+   "kind": "card",
+   "t0": 17.0,
+   "t1": 25.5,
+   "text": "1870s–1920s",
+   "sub": "the lakefront was filled in, block by block",
+   "tone": "paper",
+   "fade": 1.0
+  },
+  {
+   "kind": "clock",
+   "t0": 31.4,
+   "t1": 39.6,
+   "date": "Sunday, October 8, 1871",
+   "hour": 21,
+   "place": "DeKoven Street, Chicago",
+   "y": 0.22,
+   "tone": "dark",
+   "fade": 1.0
+  },
+  {
+   "kind": "title",
+   "t0": 39.6,
+   "t1": 45.0,
+   "text": "CHICAGO",
+   "sub": "The City That Burned",
+   "fade": 1.0
+  },
+  {
+   "kind": "label",
+   "at": "fort",
+   "t0": 45.4,
+   "t1": 49.6,
+   "text": "1803 · Fort Dearborn",
+   "y": 6,
+   "lift": 90,
+   "fade": 1.0
+  },
+  {
+   "kind": "label",
+   "at": "river",
+   "t0": 56.6,
+   "t1": 60.4,
+   "text": "Chicago River",
+   "lift": 60,
+   "fade": 1.0
+  },
+  {
+   "kind": "label",
+   "at": "lake",
+   "t0": 56.6,
+   "t1": 60.4,
+   "text": "Lake Michigan",
+   "lift": 40,
+   "fade": 1.0
+  },
+  {
+   "kind": "card",
+   "t0": 65.5,
+   "t1": 71.5,
+   "text": "1830",
+   "sub": "the town is surveyed",
+   "tone": "paper",
+   "fade": 1.0
+  },
+  {
+   "kind": "card",
+   "t0": 73.8,
+   "t1": 81.5,
+   "text": "Town of Chicago · 1833",
+   "sub": "about 350 people · a city by 1837",
+   "tone": "paper",
+   "fade": 1.0
+  },
+  {
+   "kind": "year",
+   "t0": 76.5,
+   "t1": 122
+  },
+  {
+   "kind": "label",
+   "at": "canal",
+   "t0": 91.0,
+   "t1": 100.5,
+   "text": "Illinois & Michigan Canal · to the Mississippi",
+   "lift": 70,
+   "fade": 1.0
+  },
+  {
+   "kind": "label",
+   "at": "rail",
+   "t0": 96.5,
+   "t1": 104.5,
+   "text": "Galena & Chicago Union Railroad",
+   "lift": 70,
+   "fade": 1.0
+  },
+  {
+   "kind": "card",
+   "t0": 117.0,
+   "t1": 124.5,
+   "text": "1870",
+   "sub": "298,977 people · a city of wood",
+   "tone": "paper",
+   "fade": 1.0
+  }
+ ],
+ "clips": [
+  {
+   "id": "fort",
+   "t0": 50.0,
+   "t1": 56.0,
+   "dissolve": 0.8,
+   "at": "fort",
+   "prompt": "Illustrated architectural visualisation in soft graphite pencil on cream paper. On an empty grassy bank where a river flows into a lake, a small 1803 frontier fort is built: first a faint pencil outline of the square stockade on the ground, then timber posts rise, two square blockhouses and long low barracks frame up, and the drawing fills in with fine pencil detail. Locked-off camera: the framing, horizon, river, lake and trees stay exactly where they are for the whole shot, and the water keeps its pale blue colour. No cuts, no zoom, no change of view or background; the fort builds up in place. Not photorealistic. No people, no animals, no text, no faces."
+  }
+ ],
+ "narration": [
+  {
+   "id": "n1",
+   "t": 0.8,
+   "text": "Almost everything you're looking at was built after one night in October 1871."
+  },
+  {
+   "id": "n1b",
+   "t": 7.8,
+   "text": "Let's go back."
+  },
+  {
+   "id": "n2",
+   "t": 40.2,
+   "text": "This is the story of the city that burned, and what it did next."
+  },
+  {
+   "id": "n3",
+   "t": 50.6,
+   "text": "In 1803 the United States Army built a small fort where a river met a lake."
+  },
+  {
+   "id": "n4",
+   "t": 65.6,
+   "text": "In 1830 a surveyor drew a grid across the swamp."
+  },
+  {
+   "id": "n5b",
+   "t": 74.0,
+   "text": "In 1833 about three hundred and fifty people incorporated the Town of Chicago. Four years later, it became a city."
+  },
+  {
+   "id": "n6a",
+   "t": 88.6,
+   "text": "In 1848 a canal joined the lake to the Mississippi,"
+  },
+  {
+   "id": "n6b",
+   "t": 94.8,
+   "text": "and the first train ran west."
+  },
+  {
+   "id": "n6c",
+   "t": 101.0,
+   "text": "Chicago became the place where a continent's grain, timber and cattle changed hands."
+  },
+  {
+   "id": "n7",
+   "t": 116.5,
+   "text": "By 1870, nearly three hundred thousand people. Most of their city was made of wood."
+  },
+  {
+   "id": "n8",
+   "t": 124.6,
+   "text": "The summer of 1871 was dry."
+  }
+ ],
+ "music": [
+  {
+   "id": "rise",
+   "t0": 46.0,
+   "t1": 131.0,
+   "fadeIn": 4.0,
+   "fadeOut": 4.0,
+   "prompt": "Instrumental only, no vocals. A slow, hopeful orchestral dawn for a documentary about the founding of a city on a prairie by a lake: warm sustained strings, soft piano, gentle French horn, no drums, no beat, quiet and spacious, building very gradually, key of D major, 60 bpm."
+  }
+ ],
+ "sound": [
+  {
+   "kind": "city",
+   "t0": 0,
+   "t1": 25,
+   "gain": -30
+  },
+  {
+   "kind": "wind",
+   "t0": 0,
+   "t1": 43.5,
+   "gain": -32
+  },
+  {
+   "kind": "fire",
+   "t0": 31.6,
+   "t1": 42.0,
+   "gain": -31
+  },
+  {
+   "kind": "pencil",
+   "t0": 42.0,
+   "t1": 46.0,
+   "gain": -34
+  },
+  {
+   "kind": "wind",
+   "t0": 40.5,
+   "t1": 131,
+   "gain": -36
+  },
+  {
+   "kind": "water",
+   "t0": 42,
+   "t1": 131,
+   "gain": -38
+  },
+  {
+   "kind": "pencil",
+   "t0": 64.0,
+   "t1": 68.0,
+   "gain": -36
+  },
+  {
+   "kind": "pencil",
+   "t0": 88.8,
+   "t1": 100.0,
+   "gain": -38
+  },
+  {
+   "kind": "town",
+   "t0": 76,
+   "t1": 131,
+   "gain": -40
+  }
+ ]
+}

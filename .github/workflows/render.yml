@@ -1,0 +1,57 @@
+name: render
+# Parallel render of the timeline in jobs/render.json; slices are published to the `slices` branch for assembly.
+on:
+  push:
+    branches: [main]
+    paths: ["jobs/render.json"]
+concurrency: { group: render, cancel-in-progress: true }
+permissions: { contents: write }
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    outputs: { slices: "${{ steps.s.outputs.slices }}" }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scene from open data
+        run: |
+          git fetch -q origin data
+          mkdir -p chicago/data
+          for f in buildings.json.gz osm.json.gz; do git show origin/data:$f > chicago/data/$f; done
+          python3 chicago/build_scene.py
+      - id: s
+        run: python3 -c "import json; j=json.load(open('jobs/render.json')); print('slices=' + json.dumps(list(range(j['slices']))))" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: { name: scene, path: chicago/data/scene.json, retention-days: 2 }
+  slice:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy: { fail-fast: false, matrix: { i: "${{ fromJSON(needs.prep.outputs.slices) }}" } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm }
+      - uses: actions/download-artifact@v4
+        with: { name: scene, path: chicago/data }
+      - name: Install
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+          npm ci --no-audit --no-fund && npm i --no-save --no-audit --no-fund playwright@1.63.0 && npx playwright install --with-deps chromium > /dev/null
+      - name: Render slice ${{ matrix.i }}
+        run: |
+          read -r TL W H FPS N DUR < <(python3 -c "import json; j=json.load(open('jobs/render.json')); t=json.load(open(j['timeline'])); print(j['timeline'], j['w'], j['h'], j['fps'], j['slices'], t['duration'])")
+          FROM=$(python3 -c "print($DUR*${{ matrix.i }}/$N)"); TO=$(python3 -c "print($DUR*(${{ matrix.i }}+1)/$N)")
+          node engine/render.mjs --scene chicago/data/scene.json --timeline $TL --out out/frames --w $W --h $H --fps $FPS --from $FROM --to $TO --encode out/slice_${{ matrix.i }}.mp4
+      - uses: actions/upload-artifact@v4
+        with: { name: "slice_${{ matrix.i }}", path: "out/slice_${{ matrix.i }}.mp4", retention-days: 2 }
+  collect:
+    needs: slice
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: s, pattern: "slice_*", merge-multiple: true }
+      - name: Publish slices
+        run: |
+          cd s && ls && git init -q -b slices && git add -A
+          git -c user.name=render-bot -c user.email=noreply@github.com commit -qm "slices ${{ github.sha }} $(date -u +%FT%TZ)"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}" slices

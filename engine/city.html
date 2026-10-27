@@ -1,0 +1,785 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>city engine</title>
+<style>
+  @font-face { font-family: "Architects Daughter"; src: url("/node_modules/@fontsource/architects-daughter/files/architects-daughter-latin-400-normal.woff2") format("woff2"); }
+  html, body { margin: 0; background: #000; overflow: hidden; }
+  canvas { display: block; }
+</style>
+<script type="importmap">{ "imports": { "three": "/node_modules/three/build/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+// City timelapse engine. One timeline JSON drives everything: year, mood, camera, style, overlays.
+// Look rules live in content/DIRECTOR.md section 2; this file implements them.
+import * as THREE from 'three';
+
+const params = new URLSearchParams(location.search);
+const W = +(params.get('w') || 1280), H = +(params.get('h') || 720);
+const scene = await (await fetch(params.get('scene'))).json();
+const timeline = await (await fetch(params.get('timeline'))).json();
+const FONT = '"Architects Daughter", "Comic Sans MS", cursive';
+await document.fonts.load(`40px ${FONT}`);
+
+// ---------------------------------------------------------------- renderer: scene -> HDR target -> style pass -> screen
+const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(W, H);
+renderer.shadowMap.enabled = params.get('shadows') !== '0';
+renderer.shadowMap.type = params.get('soft') === '1' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+renderer.shadowMap.autoUpdate = false;
+document.body.appendChild(renderer.domElement);
+const rt = new THREE.WebGLRenderTarget(W, H, { type: THREE.HalfFloatType, samples: params.get('aa') === '0' ? 0 : 4 });
+rt.depthTexture = new THREE.DepthTexture(W, H); rt.depthTexture.type = THREE.UnsignedIntType;
+
+const world = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(38, W / H, 20, 60000);
+const U = { uYear: { value: 2026 }, uLights: { value: 0 }, uLamps: { value: 0 }, uTime: { value: 0 } };
+
+// ---------------------------------------------------------------- timeline helpers
+function ease(t, kind) {
+  if (kind === 'in') return t * t * t;
+  if (kind === 'out') return 1 - Math.pow(1 - t, 3);
+  if (kind === 'linear') return t;
+  if (kind === 'step') return t < 1 ? 0 : 1;
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; // default: smooth in and out
+}
+function track(keys, t, dflt = 0) {
+  if (!keys || !keys.length) return { v: dflt };
+  if (t <= keys[0].t) return { v: keys[0].v };
+  for (let i = 0; i < keys.length - 1; i++) {
+    const a = keys[i], b = keys[i + 1];
+    if (t >= a.t && t <= b.t) {
+      const u = ease((t - a.t) / (b.t - a.t || 1), b.ease);
+      return typeof a.v === 'number' ? { v: a.v + (b.v - a.v) * u } : { a: a.v, b: b.v, u };
+    }
+  }
+  return { v: keys[keys.length - 1].v };
+}
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const hash = (n) => { const x = Math.sin(n * 127.1) * 43758.5453; return x - Math.floor(x); };
+
+// ---------------------------------------------------------------- sky
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false,
+  uniforms: { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, glow: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3() } },
+  vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 glow; uniform vec3 sunDir; varying vec3 vDir;
+    void main(){ float h = clamp(vDir.y*2.2, 0.0, 1.0); vec3 c = mix(horizon, top, pow(h, 0.7));
+      float s = max(dot(normalize(vec3(vDir.x, 0.0, vDir.z)), normalize(vec3(sunDir.x,0.0,sunDir.z))), 0.0);
+      c += glow * pow(s, 6.0) * (1.0 - h) * 0.9; gl_FragColor = vec4(c, 1.0); }`
+});
+world.add(new THREE.Mesh(new THREE.SphereGeometry(50000, 32, 16), skyMat));
+world.fog = new THREE.Fog(0xffffff, 6000, 26000);
+
+// ---------------------------------------------------------------- light
+const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
+world.add(hemi);
+const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+sun.castShadow = true;
+sun.shadow.mapSize.set(+(params.get('shadow') || 2048), +(params.get('shadow') || 2048));
+Object.assign(sun.shadow.camera, { left: -5500, right: 5500, top: 5500, bottom: -5500, near: 100, far: 30000 });
+sun.shadow.bias = -0.0008; sun.shadow.normalBias = 2.5;
+world.add(sun); world.add(sun.target);
+
+// ---------------------------------------------------------------- helpers
+function shapeFrom(pts) { const s = new THREE.Shape(); pts.forEach(([x, z], i) => (i ? s.lineTo(x, -z) : s.moveTo(x, -z))); return s; }
+function flat(pts, y, mat, order = 0) {
+  const g = new THREE.ShapeGeometry(shapeFrom(pts)); g.rotateX(-Math.PI / 2);
+  const m = new THREE.Mesh(g, mat); m.position.y = y; m.renderOrder = order; m.receiveShadow = true;
+  world.add(m); return m;
+}
+
+// ---------------------------------------------------------------- ground
+const groundCols = [[1803, new THREE.Color(0x8a8a5a)], [1835, new THREE.Color(0x8a8a5a)], [1850, new THREE.Color(0x7d7262)],
+  [1890, new THREE.Color(0x7d7262)], [1910, new THREE.Color(0xa39d90)]];
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(80000, 80000), new THREE.MeshStandardMaterial({ color: 0x9a9384, roughness: 1 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; world.add(ground);
+ground.material.onBeforeCompile = (sh) => {
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vG;')
+    .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvG = (modelMatrix * vec4(transformed,1.0)).xz;');
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+    varying vec2 vG;
+    float n2(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+      float a=fract(sin(dot(i,vec2(127.1,311.7)))*43758.5), b=fract(sin(dot(i+vec2(1,0),vec2(127.1,311.7)))*43758.5),
+            c=fract(sin(dot(i+vec2(0,1),vec2(127.1,311.7)))*43758.5), d=fract(sin(dot(i+vec2(1,1),vec2(127.1,311.7)))*43758.5);
+      return mix(mix(a,b,f.x), mix(c,d,f.x), f.y); }`)
+    .replace('#include <color_fragment>', `#include <color_fragment>
+      float nn = n2(vG/900.0)*0.55 + n2(vG/180.0)*0.3 + n2(vG/40.0)*0.15;
+      diffuseColor.rgb *= 0.78 + 0.42*nn;`);
+};
+function groundColor(year) {
+  for (let i = 0; i < groundCols.length - 1; i++) {
+    const [y0, c0] = groundCols[i], [y1, c1] = groundCols[i + 1];
+    if (year <= y1) return c0.clone().lerp(c1, smooth(y0, y1, year));
+  }
+  return groundCols[groundCols.length - 1][1];
+}
+
+// ---------------------------------------------------------------- water: animated ripples, sky tint, glint; pencil strokes in drawn eras
+const F = scene.fill;
+const shoreArr = []; for (let i = 0; i < 128; i++) shoreArr.push(new THREE.Vector2(F.x71[i], F.xnow[i]));
+function waterMaterial(fillMode) {
+  return new THREE.ShaderMaterial({
+    fog: false,
+    uniforms: {
+      uT: { value: 0 }, uYear: U.uYear, uDrawn: { value: 0 }, uFill: { value: fillMode ? 1 : 0 },
+      uCam: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunCol: { value: new THREE.Color() }, uSunI: { value: 1 },
+      uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uFogCol: { value: new THREE.Color() },
+      uFogNear: { value: 5000 }, uFogFar: { value: 16000 }, uHemi: { value: 1 },
+      uGhost: { value: 0 },
+      uShore: { value: shoreArr }, uZ0: { value: F.z0 }, uZ1: { value: F.z1 }, uFillA: { value: F.start }, uFillB: { value: F.end }, uBlock: { value: F.block },
+    },
+    vertexShader: `varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`,
+    fragmentShader: `
+      uniform float uT, uYear, uDrawn, uFill, uSunI, uFogNear, uFogFar, uHemi, uZ0, uZ1, uFillA, uFillB, uBlock, uGhost;
+      uniform vec3 uCam, uSunDir, uSunCol, uTop, uHorizon, uFogCol; uniform vec2 uShore[128];
+      varying vec3 vW;
+      float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+      float n2(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+        return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y); }
+      void main(){
+        float ghost = 0.0, ghostEdge = 0.0;
+        if (uFill > 0.5) { // 1871 lake over later landfill: a block disappears in the year it was filled
+          vec2 bc = (floor(vW.xz / uBlock) + 0.5) * uBlock;
+          float f = clamp((bc.y - uZ0) / (uZ1 - uZ0), 0.0, 1.0) * 127.0;
+          int i = int(min(126.0, floor(f))); float u = f - float(i);
+          vec2 s = mix(uShore[i], uShore[i + 1], u);
+          float fr = (bc.x - s.x) / max(s.y - s.x, 1.0);
+          if (fr >= 0.0 && fr < 1.0 && uYear >= uFillA + fr * (uFillB - uFillA)) discard;
+          ghost = (fr >= 0.0 && fr < 1.0) ? uGhost : 0.0; // land not yet made: drawn faintly in pencil
+          ghostEdge = uGhost * (1.0 - smoothstep(3.0, 9.0, abs(vW.x - s.y))); // the future shoreline as a pencil line
+        }
+        vec2 p = vW.xz; float t = uT;
+        // four travelling waves plus fine noise
+        vec2 d1 = normalize(vec2(1.0, 0.35)), d2 = normalize(vec2(-0.4, 1.0)), d3 = normalize(vec2(0.8, -0.6)), d4 = normalize(vec2(0.2, 1.0));
+        float k1 = 0.045, k2 = 0.07, k3 = 0.11, k4 = 0.19;
+        vec2 g = d1*k1*cos(dot(p,d1)*k1 + t*0.9)*1.0 + d2*k2*cos(dot(p,d2)*k2 + t*1.3)*0.6
+               + d3*k3*cos(dot(p,d3)*k3 + t*1.7)*0.35 + d4*k4*cos(dot(p,d4)*k4 + t*2.3)*0.2;
+        g += (vec2(n2(p*0.05 + t*0.05), n2(p*0.05 + 17.0 - t*0.04)) - 0.5) * 0.09 + (vec2(n2(p*0.21 - t*0.1), n2(p*0.21 + 5.0)) - 0.5) * 0.05;
+        float far = 1.0 - smoothstep(1200.0, 7000.0, length(uCam - vW)); // distant water calms to a mirror of the sky
+        vec3 N = normalize(vec3(-g.x * 1.6 * far, 1.0, -g.y * 1.6 * far));
+        vec3 V = normalize(uCam - vW);
+        vec3 R = reflect(-V, N);
+        float fres = 0.04 + 0.96 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
+        vec3 sky = mix(uHorizon, uTop, pow(clamp(R.y * 2.2, 0.0, 1.0), 0.7));
+        vec3 deep = vec3(0.020, 0.055, 0.080) * uHemi;
+        vec3 col = mix(deep, sky, clamp(fres * 0.9 + 0.08, 0.0, 1.0));
+        col += uSunCol * uSunI * pow(max(dot(R, uSunDir), 0.0), 120.0) * 0.9;
+        // drawn eras: a pale wash with slow pencil ripple strokes running along the shore
+        if (uDrawn > 0.01) {
+          vec3 wash = vec3(0.30, 0.48, 0.66) * (0.6 + 0.4 * uHemi);
+          float across = (vW.x + n2(vW.xz * vec2(0.003, 0.015)) * 24.0 + uT * 0.6) / 12.0;
+          float dash = step(0.45, n2(vec2(vW.z / 55.0, floor(across) * 3.1)));
+          float fw = fwidth(across);
+          float line = (1.0 - smoothstep(0.05 - fw, 0.10 + fw, abs(fract(across) - 0.5))) * dash;
+          line = mix(line, 0.04, smoothstep(0.08, 0.22, fw)); // fade to a flat wash before strokes get too fine to draw cleanly
+          vec3 drawn = mix(wash, wash * 0.45, line);
+          col = mix(col, drawn, uDrawn);
+        }
+        if (ghost > 0.0 || ghostEdge > 0.0) {
+          float hc = (vW.x + vW.z) / 16.0;
+          float hatchL = 1.0 - smoothstep(0.06, 0.12 + fwidth(hc), abs(fract(hc) - 0.5));
+          hatchL *= step(0.35, n2(vW.xz / 60.0)); // broken, hand-drawn strokes rather than a ruled pattern
+          col = mix(col, col * 0.5, max(ghost * hatchL * 0.45, ghostEdge * 0.85));
+        }
+        float fd = smoothstep(uFogNear, uFogFar, length(uCam - vW));
+        gl_FragColor = vec4(mix(col, uFogCol, fd), 0.0); // alpha 0 marks water for the style pass
+      }`,
+  });
+}
+const waterMats = [waterMaterial(false), waterMaterial(true)];
+flat(scene.lake_today, 0.6, waterMats[0]);
+flat(scene.lake_1871, 2.0, waterMats[1], 1);
+scene.rivers.forEach((r) => flat(r, 0.7, waterMats[0]));
+const parkMat = new THREE.MeshStandardMaterial({ color: 0x5f7d4a, roughness: 1, transparent: true });
+scene.parks.forEach((p) => flat(p, 0.4, parkMat));
+
+// ---------------------------------------------------------------- shader patch: grow by year, window lights
+function patch(mat, { instanced = false, windows = false, lamps = false } = {}) {
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, U);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+        uniform float uYear; varying vec3 vW; varying float vSeed; varying vec3 vNw; varying float vTall;
+        ${instanced ? 'attribute vec2 aLife;' : 'attribute float aBirth; attribute float aSeed;'}
+        ${windows ? 'attribute float aTall;' : ''}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        ${instanced
+          ? 'float g = clamp((uYear - aLife.x) / 0.6, 0.0, 1.0) * (1.0 - step(aLife.y, uYear)); vSeed = 0.0;'
+          : 'float g = clamp((uYear - aBirth) / 1.5, 0.0, 1.0); vSeed = aSeed;'}
+        ${windows ? 'vTall = aTall;' : 'vTall = 0.0;'}
+        transformed.y *= g; if (g <= 0.0) transformed.y -= 2.0;`)
+      .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
+        vec4 wp = vec4(transformed, 1.0);
+        ${instanced ? 'wp = instanceMatrix * wp;' : ''}
+        vW = (modelMatrix * wp).xyz; vNw = normalize(mat3(modelMatrix) * objectNormal);`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform float uLights; uniform float uLamps; varying vec3 vW; varying float vSeed; varying vec3 vNw; varying float vTall;
+        float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        ${windows ? `if (vTall > 0.5 && abs(vNw.y) < 0.4 && vW.y > 6.0) {
+          // curtain-wall towers: one continuous window ribbon per floor; some floors lit at dusk. Fades to an even tone when floors get too small to draw.
+          float fy = vW.y / 4.0; float fl = fract(fy); float fw = fwidth(fy);
+          float band = smoothstep(0.30, 0.36, fl) * (1.0 - smoothstep(0.84, 0.90, fl));
+          band = mix(band, 0.55, smoothstep(0.12, 0.35, fw));
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.30, 0.40, 0.55), band * 0.25);
+          diffuseColor.rgb *= 0.85 + 0.55 * smoothstep(20.0, 260.0, vW.y); // glass picks up more sky toward the top
+          totalEmissiveRadiance += vec3(1.0, 0.72, 0.45) * uLights * 0.012; // a soft interior glow behind the glass at dusk
+          float lit = mix(step(0.7, h21(vec2(floor(fy), vSeed))), 0.3, smoothstep(0.12, 0.35, fw)); // far away: an even glow, never per-pixel dots
+          totalEmissiveRadiance += vec3(1.0, 0.80, 0.56) * lit * band * uLights * 0.22; }` : ''}
+        ${lamps ? `if (uLamps > 0.0 && abs(vNw.y) < 0.4 && vW.y > 1.0 && vW.y < 9.0) {
+          float lc = h21(floor(vW.xz / 7.0) + floor(vW.y / 3.6) * 3.1);
+          float lf = step(0.3, fract(vW.y / 3.6)) * step(0.35, fract((vW.x + vW.z) / 4.0)) * (1.0 - step(0.75, fract((vW.x + vW.z) / 4.0)));
+          totalEmissiveRadiance += vec3(1.0, 0.62, 0.28) * step(0.8, lc) * lf * uLamps * 3.0; }` : ''}`);
+  };
+  return mat;
+}
+function depthFor(instanced) {
+  const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  m.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, U);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+        uniform float uYear; ${instanced ? 'attribute vec2 aLife;' : 'attribute float aBirth;'}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        ${instanced ? 'float g = clamp((uYear - aLife.x) / 0.6, 0.0, 1.0) * (1.0 - step(aLife.y, uYear));'
+                    : 'float g = clamp((uYear - aBirth) / 1.5, 0.0, 1.0);'}
+        transformed.y *= g; if (g <= 0.0) transformed.y -= 2.0;`);
+  };
+  return m;
+}
+
+// ---------------------------------------------------------------- streets
+{
+  const pos = [], birth = [];
+  scene.roads.forEach(([pts, w, year]) => {
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [x1, z1] = pts[i], [x2, z2] = pts[i + 1], L = Math.hypot(x2 - x1, z2 - z1) || 1;
+      const nx = -(z2 - z1) / L * w / 2, nz = (x2 - x1) / L * w / 2;
+      const q = [[x1 + nx, z1 + nz], [x2 + nx, z2 + nz], [x2 - nx, z2 - nz], [x1 - nx, z1 - nz]];
+      [0, 1, 2, 0, 2, 3].forEach((k) => { pos.push(q[k][0], 0.3, q[k][1]); birth.push(year); });
+    }
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('aBirth', new THREE.Float32BufferAttribute(birth, 1));
+  g.computeVertexNormals();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x6d6a66, roughness: 1, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1 }); // writes alpha 0.5 to mark streets for the style pass
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, U);
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aBirth; varying float vB;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvB = aBirth;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uYear; varying float vB;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        if (uYear < vB) discard;
+        diffuseColor.rgb = mix(vec3(0.42, 0.36, 0.29), diffuseColor.rgb, smoothstep(1890.0, 1910.0, uYear));`)
+      .replace('#include <opaque_fragment>', '#include <opaque_fragment>\n        gl_FragColor.a = 0.5;');
+  };
+  const m = new THREE.Mesh(g, mat); m.receiveShadow = true; m.frustumCulled = false; world.add(m);
+}
+
+// ---------------------------------------------------------------- modern buildings (city data), in chunks by construction year
+// Chunks are skipped entirely before their first building exists, so early-era frames do not pay for later skylines.
+{
+  const items = scene.buildings.map((b, bi) => [b, bi]).sort((a, b) => a[0][2] - b[0][2]);
+  const CH = 2500;
+  const mat = patch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0.05 }), { windows: true });
+  const depth = depthFor(false);
+  window.modernChunks = [];
+  for (let k = 0; k < items.length; k += CH) {
+    const pos = [], nor = [], col = [], birth = [], seed = [], tall = [];
+    const c = new THREE.Color();
+    for (const [[pts, h, year], bi] of items.slice(k, k + CH)) {
+      const s = hash(bi + 1), tower = h > 45 ? 1 : 0;
+      if (tower) c.setHSL(0.60 + s * 0.03, 0.24, 0.11 + s * 0.07);       // glass and steel
+      else if (year < 1930) c.setHSL(0.06 + s * 0.04, 0.26, 0.42 + s * 0.12); // brick and stone
+      else c.setHSL(0.09, 0.06, 0.55 + s * 0.15);
+      const v = (x, y, z, nx, ny, nz) => { pos.push(x, y, z); nor.push(nx, ny, nz); col.push(c.r, c.g, c.b); birth.push(year); seed.push(s * 97.0); tall.push(tower); };
+      const tri = (a, b, cc, n) => {
+        const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], wx = cc[0] - a[0], wy = cc[1] - a[1], wz = cc[2] - a[2];
+        const d = (uy * wz - uz * wy) * n[0] + (uz * wx - ux * wz) * n[1] + (ux * wy - uy * wx) * n[2];
+        (d >= 0 ? [a, b, cc] : [a, cc, b]).forEach((p) => v(p[0], p[1], p[2], n[0], n[1], n[2]));
+      };
+      const n = pts.length;
+      const cx = pts.reduce((a, p) => a + p[0], 0) / n, cz = pts.reduce((a, p) => a + p[1], 0) / n;
+      for (let i = 0; i < n; i++) {
+        const [x1, z1] = pts[i], [x2, z2] = pts[(i + 1) % n];
+        const dx = x2 - x1, dz = z2 - z1, L = Math.hypot(dx, dz) || 1;
+        let nx = dz / L, nz = -dx / L;
+        if (nx * ((x1 + x2) / 2 - cx) + nz * ((z1 + z2) / 2 - cz) < 0) { nx = -nx; nz = -nz; }
+        const N = [nx, 0, nz];
+        tri([x1, 0, z1], [x2, 0, z2], [x2, h, z2], N); tri([x1, 0, z1], [x2, h, z2], [x1, h, z1], N);
+      }
+      THREE.ShapeUtils.triangulateShape(pts.map(([x, z]) => new THREE.Vector2(x, z)), []).forEach((t) => {
+        tri([pts[t[0]][0], h, pts[t[0]][1]], [pts[t[1]][0], h, pts[t[1]][1]], [pts[t[2]][0], h, pts[t[2]][1]], [0, 1, 0]);
+      });
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setAttribute('aBirth', new THREE.Float32BufferAttribute(birth, 1));
+    g.setAttribute('aSeed', new THREE.Float32BufferAttribute(seed, 1));
+    g.setAttribute('aTall', new THREE.Float32BufferAttribute(tall, 1));
+    const m = new THREE.Mesh(g, mat);
+    m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; m.customDepthMaterial = depth;
+    m.userData.first = items[k][0][2];
+    world.add(m); window.modernChunks.push(m);
+  }
+}
+
+// ---------------------------------------------------------------- instanced layers with a life span (houses, trees), compacted per year
+function lifeLayer(geo, mat, items, place) {
+  const n = items.length;
+  const mesh = new THREE.InstancedMesh(geo, mat, n);
+  const life = new Float32Array(n * 2), M = new THREE.Matrix4(), c = new THREE.Color();
+  items.forEach((it, i) => { const [born, died] = place(it, i, M, c); mesh.setMatrixAt(i, M); mesh.setColorAt(i, c); life[i * 2] = born; life[i * 2 + 1] = died; });
+  const allM = mesh.instanceMatrix.array.slice(), allC = mesh.instanceColor.array.slice(), allL = life.slice();
+  const lifeAttr = new THREE.InstancedBufferAttribute(life, 2);
+  geo.setAttribute('aLife', lifeAttr);
+  let last = null;
+  mesh.compact = (year) => {
+    if (last !== null && Math.abs(year - last) < 1e-4) return;
+    last = year;
+    const m = mesh.instanceMatrix.array, cc = mesh.instanceColor.array, l = lifeAttr.array;
+    let k = 0;
+    for (let i = 0; i < n; i++) {
+      const b = allL[i * 2], d = allL[i * 2 + 1];
+      if (year < b - 0.01 || year >= d) continue;
+      m.set(allM.subarray(i * 16, i * 16 + 16), k * 16); cc.set(allC.subarray(i * 3, i * 3 + 3), k * 3);
+      l[k * 2] = b; l[k * 2 + 1] = d; k++;
+    }
+    mesh.count = k; mesh.instanceMatrix.needsUpdate = true; mesh.instanceColor.needsUpdate = true; lifeAttr.needsUpdate = true;
+    mesh.visible = k > 0;
+  };
+  mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false;
+  mesh.customDepthMaterial = depthFor(true);
+  world.add(mesh);
+  return mesh;
+}
+const houseGeo = (() => {
+  const P = [], N = [];
+  const quad = (a, b, c, d) => { const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize();
+    [a, b, c, a, c, d].forEach((p) => { P.push(p.x, p.y, p.z); N.push(n.x, n.y, n.z); }); };
+  const tr = (a, b, c) => { const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize();
+    [a, b, c].forEach((p) => { P.push(p.x, p.y, p.z); N.push(n.x, n.y, n.z); }); };
+  const V = (x, y, z) => new THREE.Vector3(x, y, z), e = 0.8;
+  quad(V(-.5, 0, .5), V(.5, 0, .5), V(.5, e, .5), V(-.5, e, .5)); quad(V(.5, 0, -.5), V(-.5, 0, -.5), V(-.5, e, -.5), V(.5, e, -.5));
+  quad(V(.5, 0, .5), V(.5, 0, -.5), V(.5, e, -.5), V(.5, e, .5)); quad(V(-.5, 0, -.5), V(-.5, 0, .5), V(-.5, e, .5), V(-.5, e, -.5));
+  quad(V(-.5, e, .5), V(.5, e, .5), V(.5, 1, 0), V(-.5, 1, 0)); quad(V(.5, e, -.5), V(-.5, e, -.5), V(-.5, 1, 0), V(.5, 1, 0));
+  tr(V(.5, e, .5), V(.5, e, -.5), V(.5, 1, 0)); tr(V(-.5, e, -.5), V(-.5, e, .5), V(-.5, 1, 0));
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3)); return g;
+})();
+const Q = new THREE.Quaternion(), S = new THREE.Vector3(), T = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0);
+const wood = lifeLayer(houseGeo, patch(new THREE.MeshStandardMaterial({ roughness: 0.95 }), { instanced: true, lamps: true }), scene.wood,
+  ([x, z, ang, w, d, floors, born, died, kind], i, M, c) => {
+    Q.setFromAxisAngle(Y, -ang); S.set(w, floors * 3.6 + (kind === 0 ? 3 : 0.6), d); T.set(x, 0, z); M.compose(T, Q, S);
+    const s = hash(i + 7);
+    if (kind === 2) c.setHSL(0.03 + s * 0.05, 0.34, 0.27 + s * 0.12);
+    else kind ? c.setHSL(0.04 + s * 0.04, 0.32, 0.24 + s * 0.08) : c.setHSL(0.07 + s * 0.04, 0.10 + s * 0.12, 0.13 + s * 0.10);
+    return [born, died];
+  });
+// 1803 groves thin out as the town spreads from the forks
+const forks = scene.points.forks;
+const treeGeo = (() => { // faceted canopy on a thin trunk, merged into one geometry
+  const parts = [new THREE.IcosahedronGeometry(0.42, 0).translate(0, 0.66, 0), new THREE.CylinderGeometry(0.035, 0.05, 0.5, 5).translate(0, 0.25, 0).toNonIndexed()];
+  const P = [], N = []; parts.forEach((g) => { P.push(...g.attributes.position.array); N.push(...g.attributes.normal.array); });
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3)); return g;
+})();
+const trees = lifeLayer(treeGeo, patch(new THREE.MeshStandardMaterial({ roughness: 1 }), { instanced: true }), scene.trees,
+  ([x, z, s], i, M, c) => {
+    Q.setFromEuler(new THREE.Euler((hash(i) - 0.5) * 0.25, hash(i + 1) * 6.3, (hash(i + 2) - 0.5) * 0.25));
+    M.compose(T.set(x, 0, z), Q, S.set(s * 0.9, s * 0.95, s * 0.9));
+    c.setHSL(0.25 + hash(i) * 0.05, 0.35, 0.05 + hash(i * 2) * 0.05);
+    const km = Math.hypot(x - forks[0], z - forks[1]) / 1000;
+    if ((timeline.clearZones || []).some(([cx, cz, r]) => Math.hypot(x - cx, z - cz) < r)) return [0, 0]; // keep close-up foregrounds clear
+    return [0, 1831.5 + km * 4.5 + hash(i * 3) * 8];
+  });
+
+// ---------------------------------------------------------------- Fort Dearborn (1803): stockade, two blockhouses, barracks
+const fort = (() => {
+  const g = new THREE.Group(), timber = new THREE.MeshStandardMaterial({ color: 0x75706a, roughness: 1 }), roof = new THREE.MeshStandardMaterial({ color: 0x55514c, roughness: 1 });
+  const add = (geo, mat, x, y, z, ry = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.y = ry; m.castShadow = m.receiveShadow = true; g.add(m); return m; };
+  const side = 64, posts = 30;
+  for (let k = 0; k < 4; k++) for (let i = 0; i < posts; i++) { // pointed palisade posts
+    const u = -side / 2 + (i + 0.5) * side / posts, h = 5 + hash(k * 99 + i) * 0.6;
+    const [x, z] = [[u, -side / 2], [side / 2, u], [-u, side / 2], [-side / 2, -u]][k];
+    add(new THREE.CylinderGeometry(0.55, 0.55, h, 5), timber, x, h / 2, z);
+    add(new THREE.ConeGeometry(0.55, 0.9, 5), timber, x, h + 0.45, z);
+  }
+  [[-1, -1], [1, 1]].forEach(([a, b]) => { // two-storey blockhouses, upper storey overhanging
+    add(new THREE.BoxGeometry(9, 5, 9), timber, a * side / 2, 2.5, b * side / 2);
+    add(new THREE.BoxGeometry(11, 4.5, 11), timber, a * side / 2, 7.2, b * side / 2);
+    add(new THREE.ConeGeometry(8.2, 4, 4), roof, a * side / 2, 11.5, b * side / 2, Math.PI / 4);
+  });
+  [[-14, -12, 0], [14, -12, 0], [-14, 12, 0], [14, 12, 0]].forEach(([x, z]) => { // barracks with gabled roofs
+    add(new THREE.BoxGeometry(18, 4, 7), timber, x, 2, z);
+    const r = add(new THREE.CylinderGeometry(4.6, 4.6, 18, 3, 1), roof, x, 4.2, z); r.rotation.z = Math.PI / 2; r.scale.set(1, 1, 0.55);
+  });
+  add(new THREE.CylinderGeometry(0.2, 0.25, 18, 6), timber, 0, 9, 0); // flagpole
+  g.position.set(scene.points.fort[0], 0, scene.points.fort[1]); world.add(g); return g;
+})();
+
+// ---------------------------------------------------------------- fire at DeKoven Street: glow, light, embers
+const dk = scene.points.dekoven;
+const fireLight = new THREE.PointLight(0xff7a2a, 0, 2600, 1.6); fireLight.position.set(dk[0], 40, dk[1]); world.add(fireLight);
+const radial = (stops) => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+  const g = x.createRadialGradient(64, 64, 0, 64, 64, 64); stops.forEach(([o, s]) => g.addColorStop(o, s)); x.fillStyle = g; x.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); };
+const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: radial([[0, 'rgba(255,230,170,1)'], [0.25, 'rgba(255,140,40,0.85)'], [1, 'rgba(255,80,0,0)']]),
+  blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
+const fireScene = new THREE.Scene(); // drawn after the style pass so fire keeps its true colour in every era
+glow.position.copy(fireLight.position); fireScene.add(glow);
+const NE = 48, emberPos = new Float32Array(NE * 3);
+const embersGeo = new THREE.BufferGeometry(); embersGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
+const embers = new THREE.Points(embersGeo, new THREE.PointsMaterial({ size: 5, map: radial([[0, 'rgba(255,220,150,1)'], [1, 'rgba(255,90,0,0)']]),
+  blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
+embers.frustumCulled = false; fireScene.add(embers);
+// flames and a smoke plume carried northeast by the wind
+const flameTex = (() => { const c = document.createElement('canvas'); c.width = 64; c.height = 128; const x = c.getContext('2d');
+  const g = x.createRadialGradient(32, 92, 2, 32, 80, 60); g.addColorStop(0, 'rgba(255,245,200,1)'); g.addColorStop(0.3, 'rgba(255,170,60,0.9)'); g.addColorStop(1, 'rgba(255,60,0,0)');
+  x.fillStyle = g; x.beginPath(); x.moveTo(32, 2); x.quadraticCurveTo(62, 70, 52, 110); x.quadraticCurveTo(32, 128, 12, 110); x.quadraticCurveTo(2, 70, 32, 2); x.fill();
+  return new THREE.CanvasTexture(c); })();
+const smokeTex = radial([[0, 'rgba(38,34,32,0.9)'], [0.6, 'rgba(38,34,32,0.35)'], [1, 'rgba(38,34,32,0)']]);
+const flames = [], smoke = [];
+for (let i = 0; i < 14; i++) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: flameTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
+  sp.center.set(0.5, 0.05); fireScene.add(sp); flames.push(sp);
+}
+for (let i = 0; i < 26; i++) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, depthWrite: false, transparent: true, fog: true }));
+  world.add(sp); smoke.push(sp);
+}
+function updateFire(t, f) {
+  const on = f > 0.02;
+  flames.forEach((sp, i) => {
+    sp.visible = on; if (!on) return;
+    const r = 8 + 26 * f * hash(i + 3), a = hash(i + 11) * 6.283;
+    const fl = 0.7 + 0.3 * Math.sin(t * (7 + hash(i) * 5) + i) * Math.sin(t * (3.1 + hash(i + 5) * 2) + i * 2);
+    const h = (8 + 18 * hash(i + 21)) * f * 1.6 * fl;
+    sp.position.set(dk[0] + Math.cos(a) * r, 2, dk[1] + Math.sin(a) * r);
+    sp.scale.set(h * 0.45, h, 1); sp.material.opacity = Math.min(1, f * 2.2);
+  });
+  smoke.forEach((sp, i) => {
+    sp.visible = on; if (!on) return;
+    const life = (t * 0.07 + hash(i + 31)) % 1;
+    const size = 30 + life * 160 * (0.6 + f);
+    sp.position.set(dk[0] + life * 260 + (hash(i) - 0.5) * 40, 25 + life * 220, dk[1] - life * 200 + (hash(i + 1) - 0.5) * 40);
+    sp.scale.set(size, size, 1); sp.material.opacity = 0.24 * f * Math.sin(Math.PI * life);
+  });
+}
+function updateEmbers(t, f) {
+  embers.visible = f > 0.02; embers.material.opacity = Math.min(1, f * 2);
+  for (let i = 0; i < NE; i++) {
+    const life = (t * 0.22 + hash(i + 1)) % 1;
+    emberPos[i * 3] = dk[0] + (hash(i * 3 + 1) - 0.5) * 50 + life * 90;
+    emberPos[i * 3 + 1] = 8 + life * (120 + hash(i * 5) * 120) * Math.min(1, f * 2.5);
+    emberPos[i * 3 + 2] = dk[1] + (hash(i * 7 + 2) - 0.5) * 50 - life * 70;
+  }
+  embersGeo.attributes.position.needsUpdate = true;
+}
+
+// ---------------------------------------------------------------- moods (time of day), interpolated
+const MOODS = timeline.moods;
+const ca = new THREE.Color(), cb = new THREE.Color();
+const lerpC = (a, b, t, out) => out.copy(ca.set(a)).lerp(cb.set(b), t);
+let exposure = 1;
+function applyMood(a, b, t) {
+  const A = MOODS[a], B = MOODS[b], L = (k) => A[k] + (B[k] - A[k]) * t;
+  lerpC(A.skyTop, B.skyTop, t, skyMat.uniforms.top.value);
+  lerpC(A.horizon, B.horizon, t, skyMat.uniforms.horizon.value);
+  lerpC(A.glow, B.glow, t, skyMat.uniforms.glow.value);
+  lerpC(A.horizon, B.horizon, t, world.fog.color);
+  world.fog.near = L('fogNear'); world.fog.far = L('fogFar');
+  lerpC(A.hemiSky, B.hemiSky, t, hemi.color); lerpC(A.hemiGround, B.hemiGround, t, hemi.groundColor);
+  hemi.intensity = L('hemi');
+  lerpC(A.sun, B.sun, t, sun.color); sun.intensity = L('sunI');
+  const az = THREE.MathUtils.degToRad(L('sunAz')), el = THREE.MathUtils.degToRad(L('sunEl'));
+  const d = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
+  sun.position.copy(d).multiplyScalar(15000); sun.target.position.set(0, 0, 0);
+  skyMat.uniforms.sunDir.value.copy(d);
+  U.uLights.value = L('lights'); U.uLamps.value = L('lamps');
+  exposure = L('exposure');
+  for (const m of waterMats) {
+    const u = m.uniforms;
+    u.uSunDir.value.copy(d); u.uSunCol.value.copy(sun.color); u.uSunI.value = sun.intensity;
+    u.uTop.value.copy(skyMat.uniforms.top.value); u.uHorizon.value.copy(skyMat.uniforms.horizon.value);
+    u.uFogCol.value.copy(world.fog.color); u.uFogNear.value = world.fog.near; u.uFogFar.value = world.fog.far; u.uHemi.value = hemi.intensity;
+  }
+}
+
+// ---------------------------------------------------------------- camera: eased keys plus a slow continuous orbit around the target
+const camKeys = timeline.camera;
+const drift = timeline.drift || { degPerSec: 0.2, bob: 0.03 };
+const vA = new THREE.Vector3(), vB = new THREE.Vector3();
+function placeCamera(t) {
+  let k = camKeys.length - 1;
+  for (let i = 0; i < camKeys.length - 1; i++) if (t < camKeys[i + 1].t) { k = i; break; }
+  const a = camKeys[k], b = camKeys[Math.min(k + 1, camKeys.length - 1)];
+  const u = t <= a.t ? 0 : t >= b.t ? 1 : ease((t - a.t) / (b.t - a.t || 1), b.ease);
+  const pos = vA.fromArray(a.pos).lerp(vB.fromArray(b.pos), u).clone();
+  const tgt = vA.fromArray(a.target).lerp(vB.fromArray(b.target), u).clone();
+  cam.fov = (a.fov || 38) + ((b.fov || 38) - (a.fov || 38)) * u;
+  let tOrbit = t; // orbit time excludes rests
+  for (const [p0, p1] of drift.pauses || []) tOrbit -= Math.max(0, Math.min(t, p1) - p0);
+  const ang = THREE.MathUtils.degToRad(drift.degPerSec * tOrbit);
+  const off = pos.sub(tgt).applyAxisAngle(Y, ang);
+  off.y *= 1 + drift.bob * Math.sin(t * 0.11);
+  cam.position.copy(tgt).add(off); cam.lookAt(tgt); cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+  for (const m of waterMats) m.uniforms.uCam.value.copy(cam.position);
+}
+
+// ---------------------------------------------------------------- style pass: era looks blended by year (DIRECTOR.md 2.1)
+const post = new THREE.ShaderMaterial({
+  uniforms: {
+    tColor: { value: rt.texture }, tDepth: { value: rt.depthTexture }, uRes: { value: new THREE.Vector2(W, H) },
+    uNear: { value: cam.near }, uFar: { value: cam.far }, uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() },
+    uExposure: { value: 1 }, uW: { value: new THREE.Vector4(0, 0, 0, 1) }, uBlue: { value: 0 }, uInk: { value: 1 }, uPaper: { value: 0 }, uT: { value: 0 }, uScale: { value: H / 1080 },
+  },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tColor, tDepth; uniform vec2 uRes; uniform float uNear, uFar, uExposure, uBlue, uInk, uPaper, uT, uScale;
+    uniform mat4 uProjInv, uCamWorld; uniform vec4 uW; varying vec2 vUv;
+    vec3 aces(vec3 c){
+      c *= uExposure / 0.6;
+      const mat3 I = mat3(0.59719, 0.07600, 0.02840, 0.35458, 0.90834, 0.13383, 0.04823, 0.01566, 0.83777);
+      const mat3 O = mat3(1.60475, -0.10208, -0.00327, -0.53108, 1.10813, -0.07276, -0.07367, -0.00605, 1.07602);
+      c = I * c; vec3 a = c * (c + 0.0245786) - 0.000090537; vec3 b = c * (0.983729 * c + 0.4329510) + 0.238081;
+      return clamp(O * (a / b), 0.0, 1.0); }
+    vec3 srgb(vec3 c){ return mix(c * 12.92, 1.055 * pow(c, vec3(1.0/2.4)) - 0.055, step(0.0031308, c)); }
+    vec3 px(vec2 uv){ return srgb(aces(texture2D(tColor, uv).rgb)); }
+    float lum(vec3 c){ return dot(c, vec3(0.299, 0.587, 0.114)); }
+    float lin(vec2 uv){ float z = texture2D(tDepth, uv).x * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
+    float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+    float n2(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+      return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y); }
+    float lines(float coord, float width){ // anti-aliased stripes that fade to their average tone when too fine to draw
+      float fw = fwidth(coord); float d = abs(fract(coord) - 0.5);
+      float l = 1.0 - smoothstep(0.5 - width * 0.5 - fw, 0.5 - width * 0.5 + fw, d);
+      return mix(1.0 - l, width, smoothstep(0.2, 0.45, fw)); }
+    void main(){
+      vec2 e = 1.0 / uRes;
+      vec3 c = px(vUv); float L = lum(c); vec3 chroma = c - L;
+      float aM = texture2D(tColor, vUv).a;
+      float water = 1.0 - smoothstep(0.2, 0.4, aM);
+      float street = smoothstep(0.3, 0.45, aM) * (1.0 - smoothstep(0.55, 0.7, aM));
+      float fire = smoothstep(1.02, 1.3, aM); // additive fire sprites push alpha above 1: keep their real colour
+      float dRaw = texture2D(tDepth, vUv).x; bool skyPx = dRaw > 0.99999;
+      // ink: depth creases plus tone edges
+      float dc = lin(vUv);
+      float lap = abs(lin(vUv + vec2(e.x,0.)) + lin(vUv - vec2(e.x,0.)) + lin(vUv + vec2(0.,e.y)) + lin(vUv - vec2(0.,e.y)) - 4.0 * dc) / dc;
+      float inkD = smoothstep(0.015, 0.05, lap);
+      float tl = lum(px(vUv + vec2(-e.x, e.y))), tc = lum(px(vUv + vec2(0., e.y))), tr = lum(px(vUv + vec2(e.x, e.y)));
+      float ml = lum(px(vUv + vec2(-e.x, 0.))), mr = lum(px(vUv + vec2(e.x, 0.)));
+      float bl = lum(px(vUv + vec2(-e.x, -e.y))), bc = lum(px(vUv + vec2(0., -e.y))), br = lum(px(vUv + vec2(e.x, -e.y)));
+      float gx = (tr + 2.0*mr + br) - (tl + 2.0*ml + bl), gy = (tl + 2.0*tc + tr) - (bl + 2.0*bc + br);
+      float inkL = smoothstep(0.10, 0.32, length(vec2(gx, gy)));
+      float ink = skyPx ? 0.0 : max(inkD, inkL * 0.85) * (1.0 - smoothstep(9000.0, 18000.0, dc)) * (1.0 - water * 0.75) * (1.0 - fire);
+      // world position for hatching anchored to the city, not the screen
+      vec4 vp = uProjInv * vec4(vUv * 2.0 - 1.0, dRaw * 2.0 - 1.0, 1.0); vp /= vp.w;
+      vec3 wp = (uCamWorld * vp).xyz;
+      vec3 nrm = normalize(cross(dFdx(wp), dFdy(wp)));
+      float sp = 2.6, h1, h2;
+      if (abs(nrm.y) > 0.6) { h1 = lines((wp.x + wp.z) / sp, 0.22); h2 = lines((wp.x - wp.z) / sp, 0.22); }
+      else { float al = abs(nrm.x) > abs(nrm.z) ? wp.z : wp.x; h1 = lines((al + wp.y * 0.9) / sp, 0.22); h2 = lines((al - wp.y * 0.9) / sp, 0.22); }
+      if (skyPx || water > 0.5) { h1 = 0.0; h2 = 0.0; }
+      float tone = smoothstep(0.0, 0.8, L);
+      float hatch = h1 * (1.0 - smoothstep(0.22, 0.46, tone)) + h2 * (1.0 - smoothstep(0.06, 0.26, tone)); // shadows only; open ground stays clean paper
+      // paper
+      vec2 fc = gl_FragCoord.xy / uScale;
+      float grain = n2(fc * 0.9) * 0.6 + n2(fc * 0.23) * 0.4;
+      float mottle = n2(vUv * vec2(5.0, 3.0)) * 0.6 + n2(vUv * 13.0) * 0.4;
+      vec3 cream = vec3(0.955, 0.935, 0.880) * (0.955 + 0.03 * grain + 0.025 * mottle);
+      vec3 warm = vec3(0.945, 0.900, 0.810) * (0.955 + 0.03 * grain + 0.025 * mottle);
+      // the five looks
+      vec3 modern = c;
+      vec3 sep = vec3(L) * vec3(1.07, 0.97, 0.80) + chroma * 0.20;
+      vec3 prnt = mix(sep, sep * sep * (3.0 - 2.0 * sep), 0.25) * (1.0 - ink * 0.30) + (h21(fc + fract(uT) * 91.0) - 0.5) * 0.03;
+      float wsh = 0.32 + 0.68 * smoothstep(0.0, 0.85, L);
+      vec3 engr = warm * (0.28 + 0.72 * smoothstep(0.0, 0.78, L)) + chroma * 0.38;
+      engr = mix(engr, warm * vec3(0.80, 0.87, 0.95) * wsh, water);
+      engr = mix(engr * (1.0 - hatch * 0.35), vec3(0.13, 0.10, 0.08), ink * 0.55);
+      vec3 pen = mix(vec3(0.36, 0.36, 0.38), cream, 0.38 + 0.62 * smoothstep(0.0, 0.75, L)) + chroma * 0.24;
+      pen = mix(pen, cream * vec3(0.80, 0.88, 0.96) * wsh, water);
+      pen = mix(pen * (1.0 - hatch * 0.22), vec3(0.30, 0.30, 0.33), ink * 0.55);
+      float grid = skyPx || abs(nrm.y) < 0.6 ? 0.0 : max(lines(wp.x / 100.0, 0.03), lines(wp.z / 100.0, 0.03));
+      vec3 blue = vec3(0.10, 0.24, 0.44) * (1.0 - water * 0.12) * (0.93 + 0.05 * grain + 0.04 * mottle) + vec3(0.86, 0.93, 1.0) * clamp(ink * 0.95 + grid * 0.16 + L * 0.06, 0.0, 1.0);
+      vec3 col = uW.x * pen + uW.y * engr + uW.z * prnt + uW.w * modern;
+      col = mix(col, mix(col, vec3(0.13, 0.30, 0.56), 0.85), uBlue * street);
+      col = mix(col, c, fire * 0.9); // the survey plan in blue ink; land stays pencil
+      // drawing in from blank paper
+      // the drawing develops outward from the centre of the page with a ragged pencil edge
+      float rd = length((vUv - vec2(0.5, 0.55)) * vec2(1.5, 1.0)) / 0.95 + (n2(fc / 70.0) - 0.5) * 0.18 + (n2(fc / 9.0) - 0.5) * 0.05;
+      float reveal = 1.0 - smoothstep(uInk * 1.25 - 0.12, uInk * 1.25, rd);
+      col = mix(cream, col, reveal);
+      col = mix(col, cream, uPaper); // a plain fade to the page
+      col *= 1.0 - 0.16 * pow(length(vUv - 0.5) * 1.3, 2.4);
+      gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+    }`,
+});
+post.extensions = { derivatives: true };
+const postScene = new THREE.Scene(), postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), post));
+function eraWeights(year) {
+  const f1 = smooth(1840, 1860, year), f2 = smooth(1890, 1910, year), f3 = smooth(1935, 1960, year);
+  return [1 - f1, f1 * (1 - f2), f2 * (1 - f3), f3];
+}
+
+// ---------------------------------------------------------------- story features drawn onto the map as they are narrated (canal, railroad)
+const [LON0, LAT0] = scene.origin, KX = Math.cos(LAT0 * Math.PI / 180) * 111320, KZ = 110540;
+const ll = ([lon, lat]) => [(lon - LON0) * KX, -(lat - LAT0) * KZ];
+for (const [k, v] of Object.entries(timeline.points || {})) scene.points[k] = ll(v);
+const features = (timeline.features || []).map((f) => {
+  const pts = f.pts.map(ll), pos = [], along = [];
+  let total = 0; const cum = [0];
+  for (let i = 1; i < pts.length; i++) { total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); cum.push(total); }
+  const w = f.width / 2;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x1, z1] = pts[i], [x2, z2] = pts[i + 1], L = Math.hypot(x2 - x1, z2 - z1) || 1, nx = -(z2 - z1) / L * w, nz = (x2 - x1) / L * w;
+    const q = [[x1 + nx, z1 + nz, cum[i]], [x2 + nx, z2 + nz, cum[i + 1]], [x2 - nx, z2 - nz, cum[i + 1]], [x1 - nx, z1 - nz, cum[i]]];
+    [0, 1, 2, 0, 2, 3].forEach((k) => { pos.push(q[k][0], 1.2, q[k][1]); along.push(q[k][2]); });
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('aAlong', new THREE.Float32BufferAttribute(along, 1));
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2,
+    uniforms: { uReveal: { value: 0 }, uRail: { value: f.kind === 'rail' ? 1 : 0 } },
+    vertexShader: 'attribute float aAlong; varying float vA; void main(){ vA = aAlong; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `uniform float uReveal, uRail; varying float vA;
+      void main(){
+        if (vA > uReveal) discard;
+        if (uRail > 0.5) { float d = step(0.5, fract(vA / 45.0)); gl_FragColor = vec4(mix(vec3(0.02), vec3(0.55, 0.52, 0.47), d * 0.85), 1.0); }
+        else gl_FragColor = vec4(0.10, 0.30, 0.48, 0.0); // alpha 0: drawn as water by the style pass
+      }`,
+  });
+  const m = new THREE.Mesh(g, mat); m.frustumCulled = false; m.visible = false; world.add(m);
+  return { f, m, total };
+});
+function updateFeatures(t) {
+  for (const { f, m, total } of features) {
+    const r = track(f.reveal, t, 0).v;
+    m.visible = r > 0.001; m.material.uniforms.uReveal.value = r * total;
+  }
+}
+
+// ---------------------------------------------------------------- overlays: hand-lettered text, labels, information cards, the clock
+const out = document.createElement('canvas'); out.width = W; out.height = H;
+const ctx = out.getContext('2d', { willReadFrequently: true });
+const project = ([x, z], y = 0) => { const v = new THREE.Vector3(x, y, z).project(cam); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H, v.z]; };
+function inkFor(x, y, w, h) { // dark ink on light paper, light ink on dark frames
+  const d = ctx.getImageData(Math.max(0, x | 0), Math.max(0, y | 0), Math.max(1, w | 0), Math.max(1, h | 0)).data;
+  let s = 0; for (let i = 0; i < d.length; i += 16) s += (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+  const k = smooth(0.40, 0.66, s / (d.length / 16) / 255);
+  const ch = (a, b) => Math.round(a + (b - a) * k);
+  return { k, fill: `rgb(${ch(246, 43)},${ch(241, 36)},${ch(230, 28)})`, shadow: `rgba(0,0,0,${(0.6 * (1 - k)).toFixed(3)})`, blur: 10 };
+}
+function text(str, x, y, size, align, alpha) {
+  ctx.font = `${size}px ${FONT}`; ctx.textAlign = align;
+  const w = ctx.measureText(str).width, x0 = align === 'center' ? x - w / 2 : x;
+  const st = inkFor(x0, y - size, w, size * 1.2);
+  ctx.globalAlpha = alpha; ctx.fillStyle = st.fill; ctx.shadowColor = st.shadow; ctx.shadowBlur = st.blur;
+  ctx.fillText(str, x, y); ctx.shadowBlur = 0; ctx.strokeStyle = st.fill; ctx.lineWidth = size * 0.025; ctx.strokeText(str, x, y); return st;
+}
+function drawOverlays(t, year) {
+  const S = H / 720;
+  for (const o of timeline.overlays) {
+    if (t < o.t0 || t > o.t1) continue;
+    const a = Math.max(0, Math.min(1, (t - o.t0) / (o.fade || 0.8), (o.t1 - t) / (o.fade || 0.8)));
+    if (o.kind === 'title') {
+      text(o.text, W / 2, H / 2 - 4 * S, 58 * S, 'center', a);
+      if (o.sub) text(o.sub, W / 2, H / 2 + 40 * S, 26 * S, 'center', a);
+    } else if (o.kind === 'caption') {
+      text(o.text, 56 * S, H - 52 * S, 25 * S, 'left', a);
+    } else if (o.kind === 'year') {
+      text(String(Math.floor(year)), 56 * S, 88 * S, 48 * S, 'left', a);
+    } else if (o.kind === 'label') {
+      const [px, py, pz] = project(scene.points[o.at], o.y || 0);
+      if (pz > 1) continue;
+      const lift = (o.lift || 70) * S;
+      ctx.font = `${23 * S}px ${FONT}`;
+      const st = inkFor(px - 60 * S, py - lift - 28 * S, 120 * S, 30 * S);
+      ctx.globalAlpha = a; ctx.strokeStyle = st.fill; ctx.fillStyle = st.fill; ctx.lineWidth = 1.6 * S; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(px, py - 4 * S); ctx.quadraticCurveTo(px + 6 * S, py - lift * 0.5, px, py - lift + 6 * S); ctx.stroke();
+      ctx.beginPath(); ctx.arc(px, py, 3 * S, 0, Math.PI * 2); ctx.fill();
+      ctx.font = `${23 * S}px ${FONT}`; const half = ctx.measureText(o.text).width / 2 + 24 * S;
+      text(o.text, Math.min(W - half, Math.max(half, px)), py - lift, 23 * S, 'center', a); // never cut off at the frame edge
+    } else if (o.kind === 'card' || o.kind === 'clock') {
+      // information card: centred, with a soft paper plate behind it so it reads on any frame
+      const lines = [];
+      if (o.kind === 'clock') {
+        const sec = Math.max(0, Math.floor(t - o.t0)) + (o.startSec || 0);
+        const hh = Math.floor(sec / 3600) + o.hour, mm = Math.floor(sec / 60) % 60, ss = sec % 60;
+        const h12 = ((hh + 11) % 12) + 1, ap = hh % 24 >= 12 ? 'pm' : 'am';
+        lines.push([o.date, 26]); lines.push([`${h12}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')} ${ap}`, 52]); if (o.place) lines.push([o.place, 24]);
+      } else { lines.push([o.text, o.size || 34]); if (o.sub) lines.push([o.sub, 22]); }
+      const cy = (o.y ?? 0.70) * H;
+      const heights = lines.map(([, sz]) => sz * S * 1.25), totalH = heights.reduce((x, y) => x + y, 0);
+      let wmax = 0; for (const [str, sz] of lines) { ctx.font = `${sz * S}px ${FONT}`; wmax = Math.max(wmax, ctx.measureText(str).width); }
+      const pw = wmax + 70 * S, ph = totalH + 34 * S, px0 = W / 2 - pw / 2, py0 = cy - ph / 2;
+      const st = inkFor(px0, py0, pw, ph);
+      const dark = o.tone ? o.tone === 'paper' : st.k > 0.5; // fixed per card in the timeline so it never flips mid-card; light frame: dark ink on a pale plate; dark frame: pale ink on a dark plate
+      ctx.globalAlpha = a * 0.62; ctx.fillStyle = dark ? 'rgba(250,246,236,1)' : 'rgba(18,16,14,1)';
+      ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 28 * S;
+      ctx.beginPath(); ctx.roundRect(px0, py0, pw, ph, 14 * S); ctx.fill(); ctx.shadowBlur = 0;
+      const ink = dark ? '#2b241c' : '#f6f1e6';
+      let y = py0 + 17 * S;
+      lines.forEach(([str, sz], i) => {
+        y += heights[i]; ctx.font = `${sz * S}px ${FONT}`; ctx.textAlign = 'center'; ctx.globalAlpha = a; ctx.fillStyle = ink;
+        ctx.fillText(str, W / 2, y - heights[i] * 0.22); ctx.strokeStyle = ink; ctx.lineWidth = sz * S * 0.03; ctx.strokeText(str, W / 2, y - heights[i] * 0.22);
+      });
+    } else if (o.kind === 'shore') {
+      const pts = scene[o.which].map((p) => project(p, 3)).filter((p) => p[2] < 1);
+      if (pts.length < 2) continue;
+      const mid = pts[pts.length >> 1];
+      const st = inkFor(mid[0] - 20, mid[1] - 20, 40, 40);
+      ctx.globalAlpha = a * 0.85; ctx.strokeStyle = st.fill; ctx.lineWidth = 2 * S; ctx.setLineDash([9 * S, 7 * S]);
+      ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+}
+
+// ---------------------------------------------------------------- one frame
+window.renderAt = (t, opts = {}) => {
+  const year = opts.year ?? track(timeline.year, t).v;
+  U.uYear.value = year; U.uTime.value = t;
+  const m = track(timeline.mood, t);
+  if (m.a !== undefined) applyMood(m.a, m.b, m.u); else applyMood(m.v, m.v, 0);
+  placeCamera(t);
+  const w = eraWeights(year);
+  post.uniforms.uW.value.set(...w);
+  post.uniforms.uBlue.value = track(timeline.blueprint, t, 0).v;
+  post.uniforms.uInk.value = track(timeline.ink, t, 1).v;
+  post.uniforms.uPaper.value = track(timeline.paper, t, 0).v;
+  post.uniforms.uExposure.value = exposure; post.uniforms.uT.value = t;
+  post.uniforms.uProjInv.value.copy(cam.projectionMatrixInverse); post.uniforms.uCamWorld.value.copy(cam.matrixWorld);
+  for (const wm of waterMats) { wm.uniforms.uT.value = t; wm.uniforms.uDrawn.value = w[0] + w[1] + w[2] * 0.3; wm.uniforms.uGhost.value = track(timeline.ghost, t, 0).v; }
+  updateFeatures(t);
+  parkMat.opacity = THREE.MathUtils.clamp((year - 1865) / 25, 0, 1);
+  for (const m of window.modernChunks) m.visible = year >= m.userData.first - 0.01; wood.compact(year); trees.compact(year);
+  const fortBorn = opts.fort ?? timeline.fortBorn ?? 1803.6;
+  // engine-only reveal (the fallback when no build clip): the fort rises over 0.4 timeline years around fortBorn
+  const rise = smooth(fortBorn - 0.2, fortBorn + 0.2, year);
+  fort.visible = rise > 0.001 && year < 1857; fort.scale.y = Math.max(0.001, rise);
+  ground.material.color.copy(groundColor(year));
+  const f = track(timeline.fire, t).v;
+  const pulse = 1 + 0.08 * Math.sin(t * 6.3) + 0.05 * Math.sin(t * 13.7 + 1.3);
+  fireLight.intensity = f * 9000 * pulse; glow.scale.setScalar((20 + f * 80) * pulse); glow.material.opacity = Math.min(0.7, f * 1.2);
+  updateEmbers(t, f); updateFire(t, f);
+  renderer.shadowMap.needsUpdate = true; // every frame: buildings, sun and camera are always moving (DIRECTOR.md 2.4)
+  renderer.setRenderTarget(rt); renderer.render(world, cam);
+  renderer.setRenderTarget(null); renderer.render(postScene, postCam);
+  if (f > 0.02) { renderer.autoClear = false; renderer.clearDepth(); renderer.render(fireScene, cam); renderer.autoClear = true; }
+  ctx.globalAlpha = 1; ctx.drawImage(renderer.domElement, 0, 0);
+  const fade = track(timeline.fade, t).v;
+  if (fade > 0) { ctx.fillStyle = `rgba(0,0,0,${fade})`; ctx.fillRect(0, 0, W, H); }
+  if (!opts.clean) drawOverlays(t, year);
+  return out.toDataURL('image/jpeg', opts.q || 0.93);
+};
+window.ready = true;
+</script>
+</body>
+</html>
