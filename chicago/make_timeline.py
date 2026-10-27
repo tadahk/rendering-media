@@ -70,8 +70,9 @@ year = [
     {"t": 59, "v": 1804.5, "ease": "linear"},
     {"t": 61, "v": 1830.0, "ease": "inout"},
     {"t": 65, "v": 1830.95, "ease": "linear"},                # the survey grid draws outward from the forks
-    {"t": 70.5, "v": 1833.6, "ease": "inout"},
-    {"t": 76, "v": 1837.5, "ease": "linear"},
+    {"t": 70.5, "v": 1833.3, "ease": "inout"},
+    {"t": 78.5, "v": 1833.9, "ease": "linear"},               # holds on 1833 while the town is named
+    {"t": 81, "v": 1837.5, "ease": "inout"},
     {"t": 88, "v": 1848.2, "ease": "inout"},
     {"t": 101, "v": 1849.0, "ease": "linear"},                # time almost stops while canal and railroad are drawn
     {"t": 116, "v": 1869.8, "ease": "inout"},                 # then races: the city fills in along them
@@ -87,7 +88,7 @@ timeline = {
     "moods": moods,
     "camera": camera,
     "year": year,
-    "points": {"canal": [-87.7300, 41.8105], "rail": [-87.7400, 41.8883], "river": [-87.6300, 41.8878], "lake": [-87.6150, 41.8800]},
+    "points": {"canal": [-87.6950, 41.8280], "rail": [-87.7400, 41.8883], "river": [-87.6300, 41.8878], "lake": [-87.6195, 41.8835]},
     "features": [
         {"id": "canal", "kind": "canal", "width": 45,
          "pts": [[-87.6658, 41.8436], [-87.6760, 41.8380], [-87.6900, 41.8300], [-87.7100, 41.8200], [-87.7350, 41.8080], [-87.7650, 41.7980],
@@ -118,12 +119,12 @@ timeline = {
         {"kind": "card", "t0": 65.5, "t1": 71.5, "text": "1830", "sub": "the town is surveyed", "tone": "paper", "fade": 1.0},
         {"kind": "card", "t0": 73.8, "t1": 81.5, "text": "Town of Chicago · 1833", "sub": "about 350 people · a city by 1837", "tone": "paper", "fade": 1.0},
         {"kind": "year", "t0": 76.5, "t1": 122},
-        {"kind": "label", "at": "canal", "t0": 91.0, "t1": 100.5, "text": "Illinois & Michigan Canal · to the Mississippi", "lift": 70, "fade": 1.0},
-        {"kind": "label", "at": "rail", "t0": 96.5, "t1": 104.5, "text": "Galena & Chicago Union Railroad", "lift": 70, "fade": 1.0},
+        {"kind": "label", "at": "canal", "t0": 90.6, "t1": 96.2, "text": "Illinois & Michigan Canal · to the Mississippi", "lift": 70, "fade": 1.0},
+        {"kind": "label", "at": "rail", "t0": 96.6, "t1": 104.5, "text": "Galena & Chicago Union Railroad", "lift": 70, "fade": 1.0},
         {"kind": "card", "t0": 117.0, "t1": 124.5, "text": "1870", "sub": "298,977 people · a city of wood", "tone": "paper", "fade": 1.0},
     ],
     "clips": [
-        {"id": "fort", "t0": 50.0, "t1": 56.0, "dissolve": 0.8, "at": "fort",
+        {"id": "fort", "t0": 50.0, "t1": 56.0, "dissolve": 0.8, "at": "fort",   # take 6 ends on the engine's own frame
          "prompt": "Illustrated architectural visualisation in soft graphite pencil on cream paper. "
                    "On an empty grassy bank where a river flows into a lake, a small 1803 frontier fort is built: first a faint pencil outline of the square stockade on the ground, "
                    "then timber posts rise, two square blockhouses and long low barracks frame up, and the drawing fills in with fine pencil detail. "

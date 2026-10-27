@@ -529,6 +529,9 @@ function placeCamera(t) {
   const off = pos.sub(tgt).applyAxisAngle(Y, ang);
   off.y *= 1 + drift.bob * Math.sin(t * 0.11);
   cam.position.copy(tgt).add(off); cam.lookAt(tgt); cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+  const lift = Math.max(1, cam.position.y / 3400); // high views see farther: push the haze back with altitude
+  world.fog.near *= lift; world.fog.far *= lift;
+  for (const m of waterMats) { m.uniforms.uFogNear.value = world.fog.near; m.uniforms.uFogFar.value = world.fog.far; }
   for (const m of waterMats) m.uniforms.uCam.value.copy(cam.position);
 }
 
@@ -577,7 +580,7 @@ const post = new THREE.ShaderMaterial({
       float bl = lum(px(vUv + vec2(-e.x, -e.y))), bc = lum(px(vUv + vec2(0., -e.y))), br = lum(px(vUv + vec2(e.x, -e.y)));
       float gx = (tr + 2.0*mr + br) - (tl + 2.0*ml + bl), gy = (tl + 2.0*tc + tr) - (bl + 2.0*bc + br);
       float inkL = smoothstep(0.10, 0.32, length(vec2(gx, gy)));
-      float ink = skyPx ? 0.0 : max(inkD, inkL * 0.85) * (1.0 - smoothstep(9000.0, 18000.0, dc)) * (1.0 - water * 0.75) * (1.0 - fire);
+      float ink = skyPx ? 0.0 : max(inkD, inkL * 0.85) * mix(1.0, 0.4, smoothstep(2500.0, 7000.0, dc)) * (1.0 - smoothstep(9000.0, 18000.0, dc)) * (1.0 - water * 0.75) * (1.0 - fire); // distant city: lighter lines
       // world position for hatching anchored to the city, not the screen
       vec4 vp = uProjInv * vec4(vUv * 2.0 - 1.0, dRaw * 2.0 - 1.0, 1.0); vp /= vp.w;
       vec3 wp = (uCamWorld * vp).xyz;
@@ -704,8 +707,13 @@ function drawOverlays(t, year) {
       ctx.globalAlpha = a; ctx.strokeStyle = st.fill; ctx.fillStyle = st.fill; ctx.lineWidth = 1.6 * S; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(px, py - 4 * S); ctx.quadraticCurveTo(px + 6 * S, py - lift * 0.5, px, py - lift + 6 * S); ctx.stroke();
       ctx.beginPath(); ctx.arc(px, py, 3 * S, 0, Math.PI * 2); ctx.fill();
-      ctx.font = `${23 * S}px ${FONT}`; const half = ctx.measureText(o.text).width / 2 + 24 * S;
-      text(o.text, Math.min(W - half, Math.max(half, px)), py - lift, 23 * S, 'center', a); // never cut off at the frame edge
+      ctx.font = `${23 * S}px ${FONT}`; const tw = ctx.measureText(o.text).width, half = tw / 2 + 24 * S;
+      const lx = Math.min(W - half, Math.max(half, px)); // never cut off at the frame edge
+      const pale = (o.tone || 'paper') === 'paper';
+      ctx.globalAlpha = a * 0.6; ctx.fillStyle = pale ? 'rgba(250,246,236,1)' : 'rgba(18,16,14,1)'; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 16 * S;
+      ctx.beginPath(); ctx.roundRect(lx - tw / 2 - 12 * S, py - lift - 24 * S, tw + 24 * S, 33 * S, 9 * S); ctx.fill(); ctx.shadowBlur = 0;
+      ctx.globalAlpha = a; ctx.fillStyle = pale ? '#2b241c' : '#f6f1e6'; ctx.textAlign = 'center'; ctx.fillText(o.text, lx, py - lift);
+      ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 23 * S * 0.025; ctx.strokeText(o.text, lx, py - lift); // label on a soft plate, readable on any frame
     } else if (o.kind === 'card' || o.kind === 'clock') {
       // information card: centred, with a soft paper plate behind it so it reads on any frame
       const lines = [];
